@@ -1,0 +1,116 @@
+services:
+  redis:
+    image: redis:8-alpine
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    volumes:
+      - redisinsight_data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.redisinsight.rule=Host(`redis.localhost`)"
+      - "traefik.http.routers.redisinsight.entrypoints=web"
+      - "traefik.http.services.redisinsight.loadbalancer.server.port=5540"
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: news_aggregator
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: password
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin.rule=Host(`pgadmin.localhost`)"
+      - "traefik.http.routers.pgadmin.entrypoints=web"
+      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
+
+  n8n:
+    image: ghcr.io/recursive-beast/news-aggregator_n8n:latest
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      # Database settings
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=news_aggregator
+      - DB_POSTGRESDB_USER=user
+      - DB_POSTGRESDB_PASSWORD=password
+      # Subdomain routing settings
+      - N8N_HOST=n8n.localhost
+      - N8N_PROTOCOL=http
+      - N8N_SECURE_COOKIE=false
+      - N8N_EDITOR_BASE_URL=http://n8n.localhost
+      - WEBHOOK_URL=http://n8n:5678
+      # Runner settings
+      - N8N_PROXY_HOPS=1
+      - N8N_RUNNERS_MODE=external
+      - N8N_RUNNERS_BROKER_LISTEN_ADDRESS=0.0.0.0
+      - N8N_RUNNERS_AUTH_TOKEN=supersecrettoken
+      - N8N_NATIVE_PYTHON_RUNNER=true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.rule=Host(`n8n.localhost`)"
+      - "traefik.http.routers.n8n.entrypoints=web"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+
+  n8n-runners:
+    image: n8nio/runners:2.8.3
+    environment:
+      - N8N_RUNNERS_AUTH_TOKEN=supersecrettoken
+      - N8N_RUNNERS_TASK_BROKER_URI=http://n8n:5679
+
+  traefik:
+    image: traefik:v3
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  sidecar-api:
+    build: sidecar
+    command: uvicorn main:app --host 0.0.0.0 --port 80 --reload
+    environment:
+      - DB_URI=postgresql://user:password@postgres:5432/news_aggregator
+    develop:
+      watch:
+        - action: sync
+          path: ./sidecar
+          target: /app
+        - action: rebuild
+          path: ./sidecar/Pipfile
+
+  sidecar-worker:
+    build: sidecar
+    command: watchmedo auto-restart --directory=./ --pattern=*.py --recursive -- celery -A tasks worker --loglevel=info
+    environment:
+      - DB_URI=postgresql://user:password@postgres:5432/news_aggregator
+    develop:
+      watch:
+        - action: sync
+          path: ./sidecar
+          target: /app
+        - action: rebuild
+          path: ./sidecar/Pipfile
+
+volumes:
+  n8n_data:
+  postgres_data:
+  redisinsight_data:
+  pgadmin_data:

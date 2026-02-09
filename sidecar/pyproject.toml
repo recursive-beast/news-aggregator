@@ -1,0 +1,22 @@
+[tool.ruff]
+fix = true # Enables automatic fixes
+
+[tool.ruff.lint]
+select = ["I", "F401"] # "I" for sorting imports, "F401" for removing unused imports
+
+[tool.ruff.format]
+quote-style = "double" # Use double quotes for consistency
+line-ending = "lf"     # Use LF for line endings
+
+[tool.ruff.lint.isort]
+# Mimic isort's behavior
+case-sensitive = true
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+combine-as-imports = true # Merge import statements with 'as' when possible
+force-sort-within-sections = true # Ensures sorting within sections
